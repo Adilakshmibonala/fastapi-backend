@@ -1,6 +1,12 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 app = FastAPI()
+
+
+class BlogDetails(BaseModel):
+    name: str
+    user_id: int
 
 
 @app.get(path="/")
@@ -46,3 +52,19 @@ def blog_details(limit: int, offset: int):
         }
     }
 
+
+@app.post(path="/blog")
+def create_blog(blog: BlogDetails):
+    return {
+        "data": {
+            "blog_details": {
+                "name": blog.name,
+                "user_id": blog.user_id
+            }
+        }
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=9000)
