@@ -1,70 +1,28 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+from post.database import engine
+from post.schemas import Blog
+from post import models
 
 app = FastAPI()
 
 
-class BlogDetails(BaseModel):
-    name: str
-    user_id: int
+models.Base.metadata.create_all(bind=engine)
 
 
-@app.get(path="/")
-def index():
-    return {
-        "data": {
-            "name": "AdiLakshmi"
-        }
-    }
+def get_db():
+    from post.database import SessionLocal
 
-
-@app.get("/about")
-def about():
-    return {
-        "data": {
-            "I am a backend developer."
-        }
-    }
-
-
-@app.get('/about/{id_number}')
-def blog_details(id_number: int):
-    return {
-        "data": id_number
-    }
-
-
-@app.get('/about/{id_number}/comments')
-def blog_details(id_number):
-    return {
-        "data": {
-            "comments": id_number
-        }
-    }
-
-
-@app.get('/query')
-def blog_details(limit: int, offset: int):
-    return {
-        "data": {
-            "limit": limit,
-            "offset": offset
-        }
-    }
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 @app.post(path="/blog")
-def create_blog(blog: BlogDetails):
+def create(blog: Blog, db: Session = Depends(get_db)):
     return {
-        "data": {
-            "blog_details": {
-                "name": blog.name,
-                "user_id": blog.user_id
-            }
-        }
+        "title": blog.title,
+        "body": blog.body
     }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=9000)
