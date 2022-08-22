@@ -1,13 +1,25 @@
-from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
-from post.auth.jwt_bearer import JwtBearer
 from post.database import engine
 from post import models
 from post.schemas import Blog, UserSchema
-from post.auth.jwt_handler import get_jwt_token
+from decouple import config
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi_jwt_auth import AuthJWT
+from fastapi_jwt_auth.exceptions import MissingTokenError
+from pydantic import BaseModel
+
 
 app = FastAPI()
 models.Base.metadata.create_all(bind=engine)
+
+
+class Settings(BaseModel):
+    authjwt_secret_key: str = config("JWT_SECRET_KEY")
+
+
+@AuthJWT.load_config
+def get_config():
+    return Settings()
 
 
 def get_db():
@@ -20,24 +32,34 @@ def get_db():
         db.close()
 
 
-@app.post(path="/blog", dependencies=[Depends(JwtBearer())])
-def create_blog(blog: Blog, db: Session = Depends(get_db)):
-    new_blog = models.BlogDetails(name=blog.title, body=blog.body)
-    db.add(new_blog)
-    db.commit()
-    db.refresh(new_blog)
+@app.post(path="/blog")
+def create_blog(blog: Blog, authorize: AuthJWT = Depends()):
+    try:
+        authorize.jwt_required()
+    except MissingTokenError:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    # new_blog = models.BlogDetails(name=blog.title, body=blog.body)
+    # db.add(new_blog)
+    # db.commit()
+    # db.refresh(new_blog)
+    current_user = authorize.get_jwt_subject()
     return {
-        "data": new_blog
+        "data": current_user
     }
 
 
 @app.post(path="/user/login")
-def user_login(user: UserSchema, db: Session = Depends(get_db)):
+def user_login(user: UserSchema, authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
     from fastapi import HTTPException
-    if db.query(models.User).filter(models.User.email==user.email, models.User.password==user.password):
-        return get_jwt_token(email=user.email)
-    else:
-        raise HTTPException(status_code=403, detail="Unauthorised User")
+
+    user_obj = db.query(models.User).filter(
+        models.User.email == user.email, models.User.password == user.password).first()
+    if user_obj:
+        access_token = authorize.create_access_token(subject=user_obj.email)
+        refresh_token = authorize.create_refresh_token(subject=user_obj.email)
+
+        return {"access_token": access_token, "refresh_token": refresh_token}
+    raise HTTPException(status_code=403, detail="Unauthorised User")
 
 
 @app.post(path="/user/signup")
@@ -50,3 +72,15 @@ def user_signup(user: UserSchema, db: Session = Depends(get_db)):
     return {
         "data": new_user
     }
+
+
+@app.post('/refresh')
+def refresh(authorize: AuthJWT = Depends()):
+    try:
+        authorize.jwt_refresh_token_required()
+    except MissingTokenError:
+        raise HTTPException(status_code=400, detail="Request Token Required")
+
+    current_user = authorize.get_jwt_subject()
+    new_access_token = authorize.create_access_token(subject=current_user)
+    return {"access_token": new_access_token}
