@@ -1,12 +1,15 @@
+import datetime
+
 from sqlalchemy.orm import Session
 from post.database import engine
 from post import models
 from post.schemas import Blog, UserSchema
 from decouple import config
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi_jwt_auth import AuthJWT
 from fastapi_jwt_auth.exceptions import MissingTokenError
 from pydantic import BaseModel
+from fastapi.openapi.utils import get_openapi
 
 
 app = FastAPI()
@@ -51,12 +54,18 @@ def create_blog(blog: Blog, authorize: AuthJWT = Depends()):
 @app.post(path="/user/login")
 def user_login(user: UserSchema, authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
     from fastapi import HTTPException
+    import bcrypt
 
-    user_obj = db.query(models.User).filter(
-        models.User.email == user.email, models.User.password == user.password).first()
-    if user_obj:
-        access_token = authorize.create_access_token(subject=user_obj.email)
-        refresh_token = authorize.create_refresh_token(subject=user_obj.email)
+    passwd_in_bytes = bytes(user.password, encoding="raw_unicode_escape")
+    user_obj = db.query(models.User).filter(models.User.email == user.email).first()
+
+    if user_obj and bcrypt.checkpw(passwd_in_bytes, user_obj.password):
+        access_token = authorize.create_access_token(
+            subject=user_obj.email, expires_time=datetime.timedelta(days=int(config("ACCESS_TOKEN_EXPIRES_IN_DAYS"))),
+            algorithm=config("JWT_ALGORITHM"))
+        refresh_token = authorize.create_refresh_token(
+            subject=user_obj.email, expires_time=datetime.timedelta(days=int(config("REFRESH_TOKEN_EXPIRES_IN_DAYS"))),
+            algorithm=config("JWT_ALGORITHM"))
 
         return {"access_token": access_token, "refresh_token": refresh_token}
     raise HTTPException(status_code=403, detail="Unauthorised User")
@@ -64,7 +73,13 @@ def user_login(user: UserSchema, authorize: AuthJWT = Depends(), db: Session = D
 
 @app.post(path="/user/signup")
 def user_signup(user: UserSchema, db: Session = Depends(get_db)):
-    new_user = models.User(email=user.email, password=user.password)
+    import bcrypt
+
+    passwd_in_bytes = bytes(user.password, encoding="raw_unicode_escape")
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(passwd_in_bytes, salt)
+
+    new_user = models.User(email=user.email, password=hashed_password)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -82,5 +97,7 @@ def refresh(authorize: AuthJWT = Depends()):
         raise HTTPException(status_code=400, detail="Request Token Required")
 
     current_user = authorize.get_jwt_subject()
-    new_access_token = authorize.create_access_token(subject=current_user)
+    expires_time = datetime.timedelta(days=int(config("REFRESH_TOKEN_EXPIRES_IN_DAYS")))
+    new_access_token = authorize.create_access_token(
+        subject=current_user, expires_time=expires_time, algorithm=config("JWT_ALGORITH"))
     return {"access_token": new_access_token}

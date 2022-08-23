@@ -5,3 +5,4 @@ SQLAlchemy~=1.4.40
 
 PyJWT==1.7.1
 python-decouple==3.3
+bcrypt
