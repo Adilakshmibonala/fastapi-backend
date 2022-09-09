@@ -11,6 +11,6 @@ class BlogDetails(Base):
 
 class User(Base):
     __tablename__ = "user"
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, unique=True)
     email = Column(String)
     password = Column(String)

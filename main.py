@@ -101,3 +101,15 @@ def refresh(authorize: AuthJWT = Depends()):
     new_access_token = authorize.create_access_token(
         subject=current_user, expires_time=expires_time, algorithm=config("JWT_ALGORITH"))
     return {"access_token": new_access_token}
+
+
+@app.get("/users")
+def get_all_users(db: Session = Depends(get_db)):
+    users = db.query(models.User).all()
+    return users
+
+
+@app.get("/user/{user_id}")
+def get_user_details(user_id, db: Session = Depends(get_db)):
+    user_obj = db.query(models.User.id == user_id).first()
+    return user_obj
